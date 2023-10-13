@@ -29,6 +29,8 @@ from wtforms import (
     SubmitField,
     TextAreaField,
 )
+from wtforms.validators import DataRequired, EqualTo, Regexp
+from wtforms.csrf.session import SessionCSRF
 
 # Defines all forms in the application, these will be instantiated by the template,
 # and the routes.py will read the values of the fields
@@ -41,23 +43,27 @@ from wtforms import (
 class LoginForm(FlaskForm):
     """Provides the login form for the application."""
 
-    username = StringField(label="Username", render_kw={"placeholder": "Username"})
-    password = PasswordField(label="Password", render_kw={"placeholder": "Password"})
+    username = StringField(label="Username", render_kw={"placeholder": "Username"}, validators=[DataRequired()])
+    password = PasswordField(label="Password", render_kw={"placeholder": "Password"}, validators=[DataRequired()])
     remember_me = BooleanField(
         label="Remember me"
     )  # TODO: It would be nice to have this feature implemented, probably by using cookies
     submit = SubmitField(label="Sign In")
+    csrf = SessionCSRF()
 
 
 class RegisterForm(FlaskForm):
     """Provides the registration form for the application."""
 
-    first_name = StringField(label="First Name", render_kw={"placeholder": "First Name"})
-    last_name = StringField(label="Last Name", render_kw={"placeholder": "Last Name"})
-    username = StringField(label="Username", render_kw={"placeholder": "Username"})
-    password = PasswordField(label="Password", render_kw={"placeholder": "Password"})
-    confirm_password = PasswordField(label="Confirm Password", render_kw={"placeholder": "Confirm Password"})
+    first_name = StringField(label="First Name", render_kw={"placeholder": "First Name"}, validators=[DataRequired()])
+    last_name = StringField(label="Last Name", render_kw={"placeholder": "Last Name"},validators=[DataRequired()])
+    username = StringField(label="Username", render_kw={"placeholder": "Username"}, validators=[DataRequired(),
+                                                                             Regexp(r'^[a-zA-Z0-9]{4,}$')])
+    password = PasswordField(label="Password", render_kw={"placeholder": "Password"}, validators=[DataRequired()])
+    confirm_password = PasswordField(label="Confirm Password", render_kw={"placeholder": "Confirm Password"},
+     validators=[DataRequired(), EqualTo('password')])
     submit = SubmitField(label="Sign Up")
+    csrf = SessionCSRF()
 
 
 class IndexForm(FlaskForm):
@@ -73,6 +79,7 @@ class PostForm(FlaskForm):
     content = TextAreaField(label="New Post", render_kw={"placeholder": "What are you thinking about?"})
     image = FileField(label="Image")
     submit = SubmitField(label="Post")
+    csrf = SessionCSRF()
 
 
 class CommentsForm(FlaskForm):
@@ -80,6 +87,7 @@ class CommentsForm(FlaskForm):
 
     comment = TextAreaField(label="New Comment", render_kw={"placeholder": "What do you have to say?"})
     submit = SubmitField(label="Comment")
+    csrf = SessionCSRF()
 
 
 class FriendsForm(FlaskForm):
@@ -87,6 +95,7 @@ class FriendsForm(FlaskForm):
 
     username = StringField(label="Friend's username", render_kw={"placeholder": "Username"})
     submit = SubmitField(label="Add Friend")
+    csrf = SessionCSRF()
 
 
 class ProfileForm(FlaskForm):
@@ -99,3 +108,4 @@ class ProfileForm(FlaskForm):
     nationality = StringField(label="Nationality", render_kw={"placeholder": "Your nationality"})
     birthday = DateField(label="Birthday", default=datetime.now())
     submit = SubmitField(label="Update Profile")
+    csrf = SessionCSRF()

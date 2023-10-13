@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import Any, Optional, cast
 
 from flask import Flask, current_app, g
+import html
+
 
 
 class SQLite3:
@@ -125,6 +127,133 @@ class SQLite3:
         return response
 
     # TODO: Add more specific query methods to simplify code
+    def get_user(self, username):
+        
+        sql = ''' SELECT * FROM Users WHERE username = ? '''
+
+        cursor = self.connection.execute(sql, (html.escape(username),))
+        user = cursor.fetchone()
+        cursor.close()
+        self.connection.commit()
+        return user
+    
+    def create_user(self, username, first_name, last_name, password):
+
+        sql = '''INSERT INTO Users (username, first_name, last_name, password) VALUES (?, ?, ?, ?)'''
+
+        cursor = self.connection.execute(sql, (html.escape(username), html.escape(first_name),
+                                                html.escape(last_name), html.escape(password)))
+        cursor.close()
+        self.connection.commit()
+        # should return 1 if user was created.
+        return cursor.rowcount
+    
+    def create_post(self, u_id, content, image):
+        # Sanitize the content to prevent script execution
+        sanitized_content = html.escape(content, quote=True)
+
+        sql = ''' INSERT INTO Posts (u_id, content, image, creation_time) VALUES (?, ?, ?, CURRENT_TIMESTAMP)'''
+
+        cursor = self.connection.execute(sql, (u_id, sanitized_content, image))
+        cursor.close()
+        self.connection.commit()
+        # should return 1 if post was created.
+        return cursor.rowcount
+    
+    def get_post(self, post_id):
+        sql = """
+            SELECT *
+            FROM Posts AS p
+            JOIN Users AS u ON p.u_id = u.id
+            WHERE p.id = ?;
+        """
+        cursor = self.connection.execute(sql, (post_id,))
+        post = cursor.fetchone()
+        cursor.close()
+        return post
+    
+    def get_posts(self, user_id):
+        sql = """
+            SELECT p.*, u.*, (SELECT COUNT(*) FROM Comments WHERE p_id = p.id) AS cc
+            FROM Posts AS p JOIN Users AS u ON u.id = p.u_id
+            WHERE p.u_id IN (SELECT u_id FROM Friends WHERE f_id = ?)
+                OR p.u_id IN (SELECT f_id FROM Friends WHERE u_id = ?)
+                OR p.u_id = ?
+            ORDER BY p.creation_time DESC;
+        """
+        cursor = self.connection.execute(sql, (user_id, user_id, user_id))
+        response = cursor.fetchall()
+        cursor.close()
+        self.connection.commit()
+        return response
+    
+    def create_comment(self, post_id, user_id, comment):
+        sql = """
+            INSERT INTO Comments (p_id, u_id, comment, creation_time)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP);
+        """
+        cursor = self.connection.execute(sql, (post_id, user_id, html.escape(comment)))
+        cursor.close()
+        self.connection.commit()
+        return cursor.rowcount
+    
+    def get_comments(self, post_id):
+        sql = """
+            SELECT DISTINCT *
+            FROM Comments AS c
+            JOIN Users AS u ON c.u_id = u.id
+            WHERE c.p_id = ?
+            ORDER BY c.creation_time DESC;
+        """
+        cursor = self.connection.execute(sql, (post_id,))
+        comments = cursor.fetchall()
+        cursor.close()
+        return comments
+    
+    def get_friend(self, user_id):
+        sql = """
+            SELECT f_id
+            FROM Friends
+            WHERE u_id = ?;
+        """
+        cursor = self.connection.execute(sql, (user_id,))
+        friend = cursor.fetchall()
+        cursor.close()
+        return friend
+    
+    def get_friends(self, user_id):
+        sql = """
+            SELECT u.*
+            FROM Friends AS f
+            JOIN Users AS u ON f.f_id = u.id
+            WHERE f.u_id = ? AND f.f_id != ?;
+        """
+        cursor = self.connection.execute(sql, (user_id, user_id))
+        friends = cursor.fetchall()
+        cursor.close()
+        return friends
+
+    def create_friend(self, user_id, friend_id):
+        sql = """
+            INSERT INTO Friends (u_id, f_id)
+            VALUES (?, ?);
+        """
+        cursor = self.connection.execute(sql, (user_id, friend_id))
+        cursor.close()
+        self.connection.commit()
+        return cursor.rowcount
+
+    def update_profile(self, username, education, employment, music, movie, nationality, birthday):
+        sql = """
+            UPDATE Users
+            SET education=?, employment=?, music=?, movie=?, nationality=?, birthday=?
+            WHERE username=?;
+        """
+        cursor = self.connection.execute(sql, (html.escape(education), html.escape(employment),
+        html.escape(music), html.escape(movie), html.escape(nationality), birthday, html.escape(username)))
+        cursor.close()
+        self.connection.commit()
+        return cursor.rowcount
 
     def _init_database(self, schema: PathLike | str) -> None:
         """Initializes the database with the supplied schema if it does not exist yet."""

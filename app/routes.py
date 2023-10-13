@@ -6,10 +6,12 @@ It also contains the SQL queries used for communicating with the database.
 
 from pathlib import Path
 
-from flask import flash, redirect, render_template, send_from_directory, url_for
+from flask import flash, redirect, render_template, send_from_directory, url_for, request
 
-from app import app, sqlite
+from app import app, sqlite, bcrypt
 from app.forms import CommentsForm, FriendsForm, IndexForm, PostForm, ProfileForm
+
+import html
 
 
 @app.route("/", methods=["GET", "POST"])
@@ -26,29 +28,60 @@ def index():
     login_form = index_form.login
     register_form = index_form.register
 
-    if login_form.is_submitted() and login_form.submit.data:
-        get_user = f"""
-            SELECT *
-            FROM Users
-            WHERE username = '{login_form.username.data}';
-            """
-        user = sqlite.query(get_user, one=True)
+    if request.method == "POST":  # Check if the request method is POST
 
-        if user is None:
-            flash("Sorry, this user does not exist!", category="warning")
-        elif user["password"] != login_form.password.data:
-            flash("Sorry, wrong password!", category="warning")
-        elif user["password"] == login_form.password.data:
-            return redirect(url_for("stream", username=login_form.username.data))
+        if login_form.is_submitted() and login_form.submit.data:
 
-    elif register_form.is_submitted() and register_form.submit.data:
-        insert_user = f"""
-            INSERT INTO Users (username, first_name, last_name, password)
-            VALUES ('{register_form.username.data}', '{register_form.first_name.data}', '{register_form.last_name.data}', '{register_form.password.data}');
-            """
-        sqlite.query(insert_user)
-        flash("User successfully created!", category="success")
-        return redirect(url_for("index"))
+            if login_form.validate_on_submit():  # Check if the login form is valid
+
+                user = sqlite.get_user(login_form.username.data)
+
+                if user is None:
+                    flash("Sorry, username or password is not valid!", category="warning")
+                elif not bcrypt.check_password_hash(user["password"], html.escape(login_form.password.data)):
+                    flash("Sorry, username or password is not valid!", category="warning")
+                elif bcrypt.check_password_hash(user["password"], html.escape(login_form.password.data)):
+                    return redirect(url_for("stream", username=login_form.username.data))
+            else:
+                flash("Login form data is not valid or Empty, The fields in question is:", category="warning")
+
+        elif register_form.is_submitted() and register_form.submit.data:
+
+            if register_form.validate_on_submit():
+                hashed_password = bcrypt.generate_password_hash(register_form.password.data).decode('utf-8')
+                response = sqlite.create_user(register_form.username.data, register_form.first_name.data,
+                                    register_form.last_name.data, hashed_password)
+                if response == 1:
+                    # response = 1 when user creation is succssesfull.
+                    flash("User successfully created!", category="success")
+                    return redirect(url_for("index"))
+                else:
+                    # when somthing gose wrong with the creation of user.
+                    flash("Somthing went wrong, user was not created!", category="warning")
+            else:
+                error_messages = []
+                
+                if 'first_name' in register_form.errors:
+                    error_messages.append("First Name field is required.")
+                if 'last_name' in register_form.errors:
+                    error_messages.append("Last Name field is required.")
+                if 'password' in register_form.errors:
+                    error_messages.append("Password field is required.")
+
+                if 'username' in register_form.errors:
+                    username_error = "Username field is required."
+                    # Check if the username doesn't meet the requirements (minimum length and character composition)
+                    if len(register_form.username.data) < 4:
+                        username_error = "Username must be at least 4 characters long."
+                    elif not register_form.username.data.isalnum():
+                        username_error = "Username must contain only letters and numbers."
+                    error_messages.append(username_error)
+
+                if 'confirm_password' in register_form.errors:
+                    error_messages.append("Passwords must match")
+                    
+                # Flash the aggregated error message
+                flash("\n".join(error_messages), category="warning")
 
     return render_template("index.html.j2", title="Welcome", form=index_form)
 
@@ -62,32 +95,20 @@ def stream(username: str):
     Otherwise, it reads the username from the URL and displays all posts from the user and their friends.
     """
     post_form = PostForm()
-    get_user = f"""
-        SELECT *
-        FROM Users
-        WHERE username = '{username}';
-        """
-    user = sqlite.query(get_user, one=True)
+   
+    user = sqlite.get_user(username)
 
-    if post_form.is_submitted():
+    if post_form.validate_on_submit():
         if post_form.image.data:
             path = Path(app.instance_path) / app.config["UPLOADS_FOLDER_PATH"] / post_form.image.data.filename
             post_form.image.data.save(path)
 
-        insert_post = f"""
-            INSERT INTO Posts (u_id, content, image, creation_time)
-            VALUES ({user["id"]}, '{post_form.content.data}', '{post_form.image.data.filename}', CURRENT_TIMESTAMP);
-            """
-        sqlite.query(insert_post)
+        sqlite.create_post(user["id"], post_form.content.data, post_form.image.data.filename)
+        
         return redirect(url_for("stream", username=username))
 
-    get_posts = f"""
-         SELECT p.*, u.*, (SELECT COUNT(*) FROM Comments WHERE p_id = p.id) AS cc
-         FROM Posts AS p JOIN Users AS u ON u.id = p.u_id
-         WHERE p.u_id IN (SELECT u_id FROM Friends WHERE f_id = {user["id"]}) OR p.u_id IN (SELECT f_id FROM Friends WHERE u_id = {user["id"]}) OR p.u_id = {user["id"]}
-         ORDER BY p.creation_time DESC;
-        """
-    posts = sqlite.query(get_posts)
+
+    posts = sqlite.get_posts(user["id"])
     return render_template("stream.html.j2", title="Stream", username=username, form=post_form, posts=posts)
 
 
@@ -100,33 +121,15 @@ def comments(username: str, post_id: int):
     Otherwise, it reads the username and post id from the URL and displays all comments for the post.
     """
     comments_form = CommentsForm()
-    get_user = f"""
-        SELECT *
-        FROM Users
-        WHERE username = '{username}';
-        """
-    user = sqlite.query(get_user, one=True)
+ 
+    user = sqlite.get_user(username)
 
-    if comments_form.is_submitted():
-        insert_comment = f"""
-            INSERT INTO Comments (p_id, u_id, comment, creation_time)
-            VALUES ({post_id}, {user["id"]}, '{comments_form.comment.data}', CURRENT_TIMESTAMP);
-            """
-        sqlite.query(insert_comment)
+    if comments_form.validate_on_submit():
+ 
+        sqlite.create_comment(post_id, user["id"], comments_form.comment.data)
 
-    get_post = f"""
-        SELECT *
-        FROM Posts AS p JOIN Users AS u ON p.u_id = u.id
-        WHERE p.id = {post_id};
-        """
-    get_comments = f"""
-        SELECT DISTINCT *
-        FROM Comments AS c JOIN Users AS u ON c.u_id = u.id
-        WHERE c.p_id={post_id}
-        ORDER BY c.creation_time DESC;
-        """
-    post = sqlite.query(get_post, one=True)
-    comments = sqlite.query(get_comments)
+    post = sqlite.get_post(post_id)
+    comments = sqlite.get_comments(post_id)
     return render_template(
         "comments.html.j2", title="Comments", username=username, form=comments_form, post=post, comments=comments
     )
@@ -141,26 +144,14 @@ def friends(username: str):
     Otherwise, it reads the username from the URL and displays all friends of the user.
     """
     friends_form = FriendsForm()
-    get_user = f"""
-        SELECT *
-        FROM Users
-        WHERE username = '{username}';
-        """
-    user = sqlite.query(get_user, one=True)
 
-    if friends_form.is_submitted():
-        get_friend = f"""
-            SELECT *
-            FROM Users
-            WHERE username = '{friends_form.username.data}';
-            """
-        friend = sqlite.query(get_friend, one=True)
-        get_friends = f"""
-            SELECT f_id
-            FROM Friends
-            WHERE u_id = {user["id"]};
-            """
-        friends = sqlite.query(get_friends)
+    user = sqlite.get_user(username)
+
+    if friends_form.validate_on_submit():
+
+        friend = sqlite.get_user(friends_form.username.data)
+ 
+        friends = sqlite.get_friend(user["id"])
 
         if friend is None:
             flash("User does not exist!", category="warning")
@@ -169,19 +160,11 @@ def friends(username: str):
         elif friend["id"] in [friend["f_id"] for friend in friends]:
             flash("You are already friends with this user!", category="warning")
         else:
-            insert_friend = f"""
-                INSERT INTO Friends (u_id, f_id)
-                VALUES ({user["id"]}, {friend["id"]});
-                """
-            sqlite.query(insert_friend)
+   
+            sqlite.create_friend(user["id"], friend["id"])
             flash("Friend successfully added!", category="success")
 
-    get_friends = f"""
-        SELECT *
-        FROM Friends AS f JOIN Users as u ON f.f_id = u.id
-        WHERE f.u_id = {user["id"]} AND f.f_id != {user["id"]};
-        """
-    friends = sqlite.query(get_friends)
+    friends = sqlite.get_friends(user["id"])
     return render_template("friends.html.j2", title="Friends", username=username, friends=friends, form=friends_form)
 
 
@@ -194,22 +177,14 @@ def profile(username: str):
     Otherwise, it reads the username from the URL and displays the user's profile.
     """
     profile_form = ProfileForm()
-    get_user = f"""
-        SELECT *
-        FROM Users
-        WHERE username = '{username}';
-        """
-    user = sqlite.query(get_user, one=True)
 
-    if profile_form.is_submitted():
-        update_profile = f"""
-            UPDATE Users
-            SET education='{profile_form.education.data}', employment='{profile_form.employment.data}',
-                music='{profile_form.music.data}', movie='{profile_form.movie.data}',
-                nationality='{profile_form.nationality.data}', birthday='{profile_form.birthday.data}'
-            WHERE username='{username}';
-            """
-        sqlite.query(update_profile)
+    user = sqlite.get_user(username)
+
+    if profile_form.validate_on_submit():
+
+        sqlite.update_profile(username, profile_form.education.data, profile_form.employment.data, 
+                              profile_form.music.data, profile_form.movie.data, profile_form.nationality.data, 
+                              profile_form.birthday.data)
         return redirect(url_for("profile", username=username))
 
     return render_template("profile.html.j2", title="Profile", username=username, user=user, form=profile_form)

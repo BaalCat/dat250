@@ -194,3 +194,28 @@ def profile(username: str):
 def uploads(filename):
     """Provides an endpoint for serving uploaded files."""
     return send_from_directory(Path(app.instance_path) / app.config["UPLOADS_FOLDER_PATH"], filename)
+
+@app.after_request
+def add_security_headers(response):
+    # Content Security Policy (CSP)
+    csp = {
+        'default-src': "'self'",
+        'script-src': "'self' https://cdn.jsdelivr.net/npm/@popperjs/core@2.9.2/dist/umd/popper.min.js https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/js/bootstrap.min.js 'unsafe-inline'",
+        'style-src': "'self' maxcdn.bootstrapcdn.com https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css 'unsafe-inline'",
+        'font-src': "maxcdn.bootstrapcdn.com",
+        'img-src': "'self' data:",  # Allow data URLs for images
+        # Add more CSP directives and sources as needed
+    }
+
+    # Set CSP header
+    response.headers['Content-Security-Policy'] = "; ".join(f"{key} {value}" for key, value in csp.items())
+
+    # X-Frame-Options (Anti-Clickjacking)
+    response.headers['X-Frame-Options'] = 'DENY'
+
+    # X-Content-Type-Options
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+
+    return response
+
+

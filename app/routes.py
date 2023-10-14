@@ -13,7 +13,6 @@ from app.forms import CommentsForm, FriendsForm, IndexForm, PostForm, ProfileFor
 
 import html
 
-
 @app.route("/", methods=["GET", "POST"])
 @app.route("/index", methods=["GET", "POST"])
 def index():
@@ -41,7 +40,7 @@ def index():
                 elif not bcrypt.check_password_hash(user["password"], html.escape(login_form.password.data)):
                     flash("Sorry, username or password is not valid!", category="warning")
                 elif bcrypt.check_password_hash(user["password"], html.escape(login_form.password.data)):
-                    return redirect(url_for("stream", username=login_form.username.data))
+                    return redirect(url_for("stream", username=html.escape(login_form.username.data)))
             else:
                 flash("Login form data is not valid or Empty, The fields in question is:", category="warning")
 
@@ -105,11 +104,11 @@ def stream(username: str):
 
         sqlite.create_post(user["id"], post_form.content.data, post_form.image.data.filename)
         
-        return redirect(url_for("stream", username=username))
+        return redirect(url_for("stream", username=html.escape(username)))
 
 
     posts = sqlite.get_posts(user["id"])
-    return render_template("stream.html.j2", title="Stream", username=username, form=post_form, posts=posts)
+    return render_template("stream.html.j2", title="Stream", username=html.escape(username), form=post_form, posts=posts)
 
 
 @app.route("/comments/<string:username>/<int:post_id>", methods=["GET", "POST"])
@@ -131,8 +130,7 @@ def comments(username: str, post_id: int):
     post = sqlite.get_post(post_id)
     comments = sqlite.get_comments(post_id)
     return render_template(
-        "comments.html.j2", title="Comments", username=username, form=comments_form, post=post, comments=comments
-    )
+        "comments.html.j2", title="Comments", username=html.escape(username), form=comments_form, post=post, comments=comments)
 
 
 @app.route("/friends/<string:username>", methods=["GET", "POST"])
@@ -165,7 +163,7 @@ def friends(username: str):
             flash("Friend successfully added!", category="success")
 
     friends = sqlite.get_friends(user["id"])
-    return render_template("friends.html.j2", title="Friends", username=username, friends=friends, form=friends_form)
+    return render_template("friends.html.j2", title="Friends", username=html.escape(username), friends=friends, form=friends_form)
 
 
 @app.route("/profile/<string:username>", methods=["GET", "POST"])
@@ -185,9 +183,9 @@ def profile(username: str):
         sqlite.update_profile(username, profile_form.education.data, profile_form.employment.data, 
                               profile_form.music.data, profile_form.movie.data, profile_form.nationality.data, 
                               profile_form.birthday.data)
-        return redirect(url_for("profile", username=username))
+        return redirect(url_for("profile", username=html.escape(username)))
 
-    return render_template("profile.html.j2", title="Profile", username=username, user=user, form=profile_form)
+    return render_template("profile.html.j2", title="Profile", username=html.escape(username), user=user, form=profile_form)
 
 
 @app.route("/uploads/<string:filename>")
@@ -204,7 +202,7 @@ def add_security_headers(response):
         'style-src': "'self' maxcdn.bootstrapcdn.com https://maxcdn.bootstrapcdn.com/font-awesome/4.7.0/css/font-awesome.min.css https://cdn.jsdelivr.net/npm/bootstrap@5.0.2/dist/css/bootstrap.min.css 'unsafe-inline'",
         'font-src': "maxcdn.bootstrapcdn.com",
         'img-src': "'self' data:",  # Allow data URLs for images
-        # Add more CSP directives and sources as needed
+        'frame-src': "'none'",  # Disallow inline frames
     }
 
     # Set CSP header
